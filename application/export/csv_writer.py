@@ -22,3 +22,7 @@ def append_to_csv(data):
         if not exists:
             writer.writeheader()
         writer.writerow(row)
+
+def get_csv_path():
+    return CSV_PATH
+    
