@@ -2,6 +2,7 @@ import streamlit as st
 import cv2
 import numpy as np
 import pandas as pd
+import hashlib
 import os
 
 from application.cv.quality import validate_image_quality
@@ -12,138 +13,293 @@ from application.export.csv_writer import append_to_csv, get_csv_path
 
 
 # -------------------------------------------------
-# Helper: decide whether OCR output is usable
-# -------------------------------------------------
-def is_ocr_usable(ocr_result):
-    return (
-        ocr_result["confidence"] >= 40 and
-        len(ocr_result["text"].strip()) >= 10
-    )
-
-
-# -------------------------------------------------
-# Page configuration
+# PAGE CONFIG
 # -------------------------------------------------
 st.set_page_config(
-    page_title="Business Card OCR",
+    page_title="Business Card Scanner",
     page_icon="📇",
-    layout="centered"
-)
-
-st.title("📇 Business Card Scanner")
-st.caption(
-    "Original-first OCR • Line-wise text • Intelligent preprocessing fallback"
+    layout="wide"
 )
 
 # -------------------------------------------------
-# Image input
+# CUSTOM STYLING + LOADER
 # -------------------------------------------------
-mode = st.radio(
-    "Select input method",
-    ["Upload Image", "Camera"],
-    horizontal=True
-)
+st.markdown("""
+<style>
 
-image = None
+section.main > div {
+    padding-top: 1rem;
+}
 
-if mode == "Upload Image":
-    uploaded_file = st.file_uploader(
-        "Upload a business card image",
-        type=["jpg", "jpeg", "png"]
+/* Title */
+.app-title {
+    text-align: center;
+    font-size: 32px;
+    font-weight: 700;
+    margin-bottom: 25px;
+}
+
+/* Loader */
+.loader {
+  border: 6px solid #f3f3f3;
+  border-top: 6px solid #4A6CF7;
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  animation: spin 1s linear infinite;
+  margin: auto;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.loader-container {
+  text-align: center;
+  padding: 40px;
+}
+
+/* Button */
+.stButton>button {
+    background-color: #4A6CF7;
+    color: white;
+    border-radius: 8px;
+    height: 42px;
+    font-weight: 600;
+    border: none;
+}
+
+.stButton>button:hover {
+    background-color: #3b5ae0;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown('<div class="app-title">📇 Business Card Scanner</div>',
+            unsafe_allow_html=True)
+
+# -------------------------------------------------
+# SESSION STATE
+# -------------------------------------------------
+if "processed_hash" not in st.session_state:
+    st.session_state.processed_hash = None
+
+if "image" not in st.session_state:
+    st.session_state.image = None
+
+if "ocr_data" not in st.session_state:
+    st.session_state.ocr_data = None
+
+if "current_record" not in st.session_state:
+    st.session_state.current_record = None
+
+
+# -------------------------------------------------
+# HELPERS
+# -------------------------------------------------
+def compute_hash(img):
+    return hashlib.md5(img.tobytes()).hexdigest()
+
+
+def is_usable(ocr):
+    return ocr["confidence"] >= 40 and len(ocr["text"].strip()) >= 10
+
+
+def draw_bounding_boxes(image, ocr_data):
+    img_copy = image.copy()
+    n = len(ocr_data["text"])
+
+    for i in range(n):
+        word = ocr_data["text"][i].strip()
+
+        try:
+            conf = int(float(ocr_data["conf"][i]))
+        except:
+            continue
+
+        if word and conf > 40:
+            x = ocr_data["left"][i]
+            y = ocr_data["top"][i]
+            w = ocr_data["width"][i]
+            h = ocr_data["height"][i]
+
+            cv2.rectangle(
+                img_copy,
+                (x, y),
+                (x + w, y + h),
+                (0, 255, 0),
+                2
+            )
+
+    return img_copy
+
+
+def run_pipeline(img):
+
+    ok, _ = validate_image_quality(img)
+    if not ok:
+        st.error("Image quality too poor.")
+        return None, None
+
+    ocr = extract_text(img)
+
+    if not is_usable(ocr):
+        ocr = extract_text(preprocess_light(img))
+
+    if not is_usable(ocr):
+        ocr = extract_text(preprocess_aggressive(img))
+
+    entities = extract_entities(ocr["text"], ocr.get("lines", []))
+
+    return entities, ocr
+
+
+# -------------------------------------------------
+# INPUT SECTION (CENTERED)
+# -------------------------------------------------
+center = st.columns([1, 2, 1])[1]
+
+with center:
+
+    mode = st.radio(
+        "Select Input Method",
+        ["Upload Image", "Camera"],
+        horizontal=True
     )
-    if uploaded_file:
-        image = cv2.imdecode(
-            np.frombuffer(uploaded_file.read(), np.uint8),
-            cv2.IMREAD_COLOR
+
+    img = None
+
+    if mode == "Upload Image":
+        uploaded = st.file_uploader(
+            "Upload Business Card",
+            type=["jpg", "jpeg", "png"]
         )
-else:
-    camera_image = st.camera_input("Capture business card")
-    if camera_image:
-        image = cv2.imdecode(
-            np.frombuffer(camera_image.read(), np.uint8),
-            cv2.IMREAD_COLOR
-        )
+        if uploaded:
+            img = cv2.imdecode(
+                np.frombuffer(uploaded.read(), np.uint8),
+                cv2.IMREAD_COLOR
+            )
+
+    elif mode == "Camera":
+        camera = st.camera_input("Capture Business Card")
+        if camera:
+            img = cv2.imdecode(
+                np.frombuffer(camera.read(), np.uint8),
+                cv2.IMREAD_COLOR
+            )
+
 
 # -------------------------------------------------
-# Main pipeline
+# AUTO EXTRACTION WITH ANIMATION
 # -------------------------------------------------
-if image is not None:
-    st.image(image, channels="BGR", caption="Input Image")
+if img is not None:
 
-    if st.button("🔍 Extract Information", use_container_width=True):
+    img_hash = compute_hash(img)
 
-        # 1️⃣ Image quality check (soft)
-        ok, quality = validate_image_quality(image)
-        if not ok:
-            st.error("Image quality is too poor for OCR.")
-            st.stop()
+    if img_hash != st.session_state.processed_hash:
 
-        if quality["status"] == "accepted_with_warnings":
-            st.warning("⚠️ Image quality is low — OCR confidence may be affected")
+        st.session_state.processed_hash = img_hash
+        st.session_state.image = img
 
-        # 2️⃣ FIRST PASS — ORIGINAL IMAGE
-        ocr = extract_text(image)
+        loader = st.empty()
 
-        # 3️⃣ SECOND PASS — LIGHT PREPROCESS
-        if not is_ocr_usable(ocr):
-            st.info("Retrying OCR with light preprocessing…")
-            processed = preprocess_light(image)
-            ocr = extract_text(processed)
+        loader.markdown("""
+        <div class="loader-container">
+        <div class="loader"></div>
+        <p>Extracting business card details...</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-        # 4️⃣ THIRD PASS — AGGRESSIVE PREPROCESS
-        if not is_ocr_usable(ocr):
-            st.info("Retrying OCR with aggressive preprocessing…")
-            processed = preprocess_aggressive(image)
-            ocr = extract_text(processed)
+        entities, ocr = run_pipeline(img)
 
-        # 5️⃣ Entity extraction (LINE-AWARE)
-        entities = extract_entities(
-            ocr["text"],
-            ocr.get("lines", [])
+        loader.empty()
+
+        st.session_state.current_record = entities
+        st.session_state.ocr_data = ocr
+
+
+# -------------------------------------------------
+# RESULTS SECTION
+# -------------------------------------------------
+if st.session_state.current_record and st.session_state.image is not None:
+
+    st.markdown("---")
+
+    col1, col2 = st.columns([1.2, 1], gap="large")
+
+    # LEFT: Annotated Image
+    with col1:
+        st.markdown("### Detected Text Regions")
+
+        annotated = draw_bounding_boxes(
+            st.session_state.image,
+            st.session_state.ocr_data["data"]
         )
-        entities["OCR_Confidence"] = ocr["confidence"]
 
-        # 6️⃣ Save to CSV
-        append_to_csv(entities)
+        st.image(
+            annotated,
+            channels="BGR",
+            use_container_width=True
+        )
 
-        # -------------------------------------------------
-        # Results UI
-        # -------------------------------------------------
-        st.success("✅ Extraction complete")
+    # RIGHT: Editable Fields
+    with col2:
+        st.markdown("### Extracted Details")
 
-        st.metric("OCR Confidence", f"{ocr['confidence']}%")
-        st.write(f"OCR Engine Used: **{ocr.get('engine', 'unknown')}**")
+        name = st.text_input(
+            "Name",
+            st.session_state.current_record.get("Name", "")
+        )
 
-        # Arrow-safe table (Field → Value)
-        df = pd.DataFrame(
-            list(entities.items()),
-            columns=["Field", "Value"]
-        ).astype(str)
+        designation = st.text_input(
+            "Designation",
+            st.session_state.current_record.get("Designation", "")
+        )
 
-        st.subheader("📇 Extracted Information")
-        st.table(df)
+        phone = st.text_input(
+            "Phone",
+            st.session_state.current_record.get("Phone", "")
+        )
 
-        # -------------------------------------------------
-        # Raw OCR output (line by line)
-        # -------------------------------------------------
-        st.subheader("📄 Raw OCR Text (Line by Line)")
+        email = st.text_input(
+            "Email",
+            st.session_state.current_record.get("Email", "")
+        )
 
-        if ocr.get("lines"):
-            for idx, line in enumerate(ocr["lines"], start=1):
-                st.text(f"{idx:02d}. {line}")
-        else:
-            st.info("No readable text lines detected.")
+        website = st.text_input(
+            "Website",
+            st.session_state.current_record.get("Website", "")
+        )
 
-        # -------------------------------------------------
-        # CSV Download
-        # -------------------------------------------------
-        csv_path = get_csv_path()
-        if os.path.exists(csv_path):
-            with open(csv_path, "rb") as f:
-                st.download_button(
-                    label="⬇️ Download Extracted CSV",
-                    data=f,
-                    file_name="business_cards.csv",
-                    mime="text/csv",
-                    use_container_width=True
-                )
+        address = st.text_area(
+            "Address",
+            st.session_state.current_record.get("Address", "")
+        )
+
+        if st.button("OK - Save Record", use_container_width=True):
+
+            record = {
+                "Name": name,
+                "Designation": designation,
+                "Phone": phone,
+                "Email": email,
+                "Website": website,
+                "Address": address
+            }
+
+            append_to_csv(record)
+            st.success("Record saved permanently to CSV!")
+
+
+# -------------------------------------------------
+# PREVIEW TABLE (NOT SAVED)
+# -------------------------------------------------
+if st.session_state.current_record:
+
+    st.markdown("---")
+    st.markdown("### Preview (Not Saved Until OK)")
+
+    preview_df = pd.DataFrame([st.session_state.current_record])
+    st.dataframe(preview_df, use_container_width=True)

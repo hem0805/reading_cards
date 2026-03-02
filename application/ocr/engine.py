@@ -9,8 +9,9 @@ pytesseract.pytesseract.tesseract_cmd = (
 def tesseract_ocr_lines(image):
     """
     Perform OCR and return:
-    - list of text lines (in reading order)
+    - list of text lines
     - average confidence
+    - full OCR data (for bounding boxes)
     """
     data = pytesseract.image_to_data(
         image,
@@ -22,9 +23,14 @@ def tesseract_ocr_lines(image):
     confidences = []
 
     n = len(data["text"])
+
     for i in range(n):
         word = data["text"][i].strip()
-        conf = int(data["conf"][i])
+
+        try:
+            conf = int(float(data["conf"][i]))
+        except:
+            continue
 
         if not word or conf < 40:
             continue
@@ -38,7 +44,6 @@ def tesseract_ocr_lines(image):
         lines.setdefault(key, []).append(word)
         confidences.append(conf)
 
-    # Reconstruct lines in reading order
     ordered_lines = [
         " ".join(words)
         for _, words in sorted(lines.items())
@@ -46,23 +51,24 @@ def tesseract_ocr_lines(image):
 
     avg_conf = sum(confidences) / len(confidences) if confidences else 0.0
 
-    return ordered_lines, avg_conf
+    return ordered_lines, avg_conf, data
 
 
 def extract_text(image):
     """
-    Line-aware OCR.
     Returns:
-    - text (joined with newlines)
-    - lines (list)
+    - text
+    - lines
     - confidence
     - engine
+    - raw OCR data (for bounding boxes)
     """
-    lines, conf = tesseract_ocr_lines(image)
+    lines, conf, data = tesseract_ocr_lines(image)
 
     return {
         "text": "\n".join(lines),
         "lines": lines,
         "confidence": round(conf, 2),
-        "engine": "tesseract"
+        "engine": "tesseract",
+        "data": data
     }
