@@ -9,7 +9,8 @@ from application.cv.quality import validate_image_quality
 from application.cv.preprocess import preprocess_light, preprocess_aggressive
 from application.ocr.engine import extract_text
 from application.nlp.ner import extract_entities
-from application.export.csv_writer import append_to_csv, get_csv_path
+from application.export.csv_writer import append_to_csv, is_duplicate
+from application.export.vcard_writer import save_vcard
 
 
 # -------------------------------------------------
@@ -21,64 +22,9 @@ st.set_page_config(
     layout="wide"
 )
 
-# -------------------------------------------------
-# CUSTOM STYLING + LOADER
-# -------------------------------------------------
-st.markdown("""
-<style>
-
-section.main > div {
-    padding-top: 1rem;
-}
-
-/* Title */
-.app-title {
-    text-align: center;
-    font-size: 32px;
-    font-weight: 700;
-    margin-bottom: 25px;
-}
-
-/* Loader */
-.loader {
-  border: 6px solid #f3f3f3;
-  border-top: 6px solid #4A6CF7;
-  border-radius: 50%;
-  width: 50px;
-  height: 50px;
-  animation: spin 1s linear infinite;
-  margin: auto;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-.loader-container {
-  text-align: center;
-  padding: 40px;
-}
-
-/* Button */
-.stButton>button {
-    background-color: #4A6CF7;
-    color: white;
-    border-radius: 8px;
-    height: 42px;
-    font-weight: 600;
-    border: none;
-}
-
-.stButton>button:hover {
-    background-color: #3b5ae0;
-}
-
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown('<div class="app-title">📇 Business Card Scanner</div>',
+st.markdown("<h2 style='text-align:center;'>📇 Business Card Scanner</h2>",
             unsafe_allow_html=True)
+
 
 # -------------------------------------------------
 # SESSION STATE
@@ -86,14 +32,14 @@ st.markdown('<div class="app-title">📇 Business Card Scanner</div>',
 if "processed_hash" not in st.session_state:
     st.session_state.processed_hash = None
 
-if "image" not in st.session_state:
-    st.session_state.image = None
+if "current_record" not in st.session_state:
+    st.session_state.current_record = None
 
 if "ocr_data" not in st.session_state:
     st.session_state.ocr_data = None
 
-if "current_record" not in st.session_state:
-    st.session_state.current_record = None
+if "image" not in st.session_state:
+    st.session_state.image = None
 
 
 # -------------------------------------------------
@@ -105,35 +51,6 @@ def compute_hash(img):
 
 def is_usable(ocr):
     return ocr["confidence"] >= 40 and len(ocr["text"].strip()) >= 10
-
-
-def draw_bounding_boxes(image, ocr_data):
-    img_copy = image.copy()
-    n = len(ocr_data["text"])
-
-    for i in range(n):
-        word = ocr_data["text"][i].strip()
-
-        try:
-            conf = int(float(ocr_data["conf"][i]))
-        except:
-            continue
-
-        if word and conf > 40:
-            x = ocr_data["left"][i]
-            y = ocr_data["top"][i]
-            w = ocr_data["width"][i]
-            h = ocr_data["height"][i]
-
-            cv2.rectangle(
-                img_copy,
-                (x, y),
-                (x + w, y + h),
-                (0, 255, 0),
-                2
-            )
-
-    return img_copy
 
 
 def run_pipeline(img):
@@ -151,48 +68,88 @@ def run_pipeline(img):
     if not is_usable(ocr):
         ocr = extract_text(preprocess_aggressive(img))
 
-    entities = extract_entities(ocr["text"], ocr.get("lines", []))
+    entities = extract_entities(
+        ocr["text"],
+        ocr.get("lines", [])
+    )
 
     return entities, ocr
 
 
-# -------------------------------------------------
-# INPUT SECTION (CENTERED)
-# -------------------------------------------------
-center = st.columns([1, 2, 1])[1]
+def draw_bounding_boxes(image, ocr_data, entities):
 
-with center:
+    img_copy = image.copy()
+    n = len(ocr_data["text"])
 
-    mode = st.radio(
-        "Select Input Method",
-        ["Upload Image", "Camera"],
-        horizontal=True
+    for i in range(n):
+
+        word = ocr_data["text"][i].strip()
+
+        try:
+            conf = int(float(ocr_data["conf"][i]))
+        except:
+            continue
+
+        if not word or conf < 40:
+            continue
+
+        x = ocr_data["left"][i]
+        y = ocr_data["top"][i]
+        w = ocr_data["width"][i]
+        h = ocr_data["height"][i]
+
+        color = (200, 200, 200)  # Default Gray
+
+        if entities.get("Name") and word.lower() in entities["Name"].lower():
+            color = (0, 255, 0)  # Green
+
+        elif entities.get("Phone") and word in entities["Phone"]:
+            color = (255, 0, 0)  # Blue
+
+        elif entities.get("Email") and word.lower() in entities["Email"].lower():
+            color = (255, 0, 255)  # Purple
+
+        elif entities.get("Address") and word.lower() in entities["Address"].lower():
+            color = (0, 165, 255)  # Orange
+
+        cv2.rectangle(img_copy, (x, y), (x + w, y + h), color, 2)
+
+    return img_copy
+
+
+# -------------------------------------------------
+# INPUT SECTION
+# -------------------------------------------------
+mode = st.radio(
+    "Select Input Method",
+    ["Upload Image", "Camera"],
+    horizontal=True
+)
+
+img = None
+
+if mode == "Upload Image":
+    uploaded = st.file_uploader(
+        "Upload Business Card",
+        type=["jpg", "jpeg", "png"]
     )
-
-    img = None
-
-    if mode == "Upload Image":
-        uploaded = st.file_uploader(
-            "Upload Business Card",
-            type=["jpg", "jpeg", "png"]
+    if uploaded:
+        img = cv2.imdecode(
+            np.frombuffer(uploaded.read(), np.uint8),
+            cv2.IMREAD_COLOR
         )
-        if uploaded:
-            img = cv2.imdecode(
-                np.frombuffer(uploaded.read(), np.uint8),
-                cv2.IMREAD_COLOR
-            )
 
-    elif mode == "Camera":
-        camera = st.camera_input("Capture Business Card")
-        if camera:
-            img = cv2.imdecode(
-                np.frombuffer(camera.read(), np.uint8),
-                cv2.IMREAD_COLOR
-            )
+else:
+    camera = st.camera_input("Capture Business Card")
+    if camera:
+        img = cv2.imdecode(
+            np.frombuffer(camera.read(), np.uint8),
+            cv2.IMREAD_COLOR
+        )
 
 
 # -------------------------------------------------
-# AUTO EXTRACTION WITH ANIMATION
+# AUTO EXTRACTION
 # -------------------------------------------------
 if img is not None:
 
@@ -203,39 +160,27 @@ if img is not None:
         st.session_state.processed_hash = img_hash
         st.session_state.image = img
 
-        loader = st.empty()
-
-        loader.markdown("""
-        <div class="loader-container">
-        <div class="loader"></div>
-        <p>Extracting business card details...</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        entities, ocr = run_pipeline(img)
-
-        loader.empty()
+        with st.spinner("Extracting details..."):
+            entities, ocr = run_pipeline(img)
 
         st.session_state.current_record = entities
         st.session_state.ocr_data = ocr
 
 
 # -------------------------------------------------
-# RESULTS SECTION
+# DISPLAY RESULTS
 # -------------------------------------------------
 if st.session_state.current_record and st.session_state.image is not None:
 
-    st.markdown("---")
-
     col1, col2 = st.columns([1.2, 1], gap="large")
 
-    # LEFT: Annotated Image
+    # LEFT SIDE - Annotated Image
     with col1:
-        st.markdown("### Detected Text Regions")
 
         annotated = draw_bounding_boxes(
             st.session_state.image,
-            st.session_state.ocr_data["data"]
+            st.session_state.ocr_data["data"],
+            st.session_state.current_record
         )
 
         st.image(
@@ -244,9 +189,10 @@ if st.session_state.current_record and st.session_state.image is not None:
             use_container_width=True
         )
 
-    # RIGHT: Editable Fields
+    # RIGHT SIDE - Editable Fields
     with col2:
-        st.markdown("### Extracted Details")
+
+        st.subheader("Extracted Details")
 
         name = st.text_input(
             "Name",
@@ -281,25 +227,43 @@ if st.session_state.current_record and st.session_state.image is not None:
         if st.button("OK - Save Record", use_container_width=True):
 
             record = {
-                "Name": name,
-                "Designation": designation,
-                "Phone": phone,
-                "Email": email,
-                "Website": website,
-                "Address": address
+                "Name": (name or "").strip(),
+                "Designation": (designation or "").strip(),
+                "Phone": (phone or "").strip(),
+                "Email": (email or "").strip().lower(),
+                "Website": (website or "").strip(),
+                "Address": (address or "").strip()
             }
 
-            append_to_csv(record)
-            st.success("Record saved permanently to CSV!")
+            duplicate_type = is_duplicate(record)
 
+            if duplicate_type:
 
-# -------------------------------------------------
-# PREVIEW TABLE (NOT SAVED)
-# -------------------------------------------------
-if st.session_state.current_record:
+                if duplicate_type == "email":
+                    st.warning("⚠ A contact with this email already exists.")
 
+                elif duplicate_type == "phone":
+                    st.warning("⚠ A contact with this phone already exists (no email provided).")
+
+            else:
+                append_to_csv(record)
+                vcard_path = save_vcard(record)
+
+                st.success("Record saved successfully!")
+
+                with open(vcard_path, "rb") as f:
+                    st.download_button(
+                        label="📱 Download Contact (.vcf)",
+                        data=f,
+                        file_name=os.path.basename(vcard_path),
+                        mime="text/vcard"
+                    )
+
+    # -------------------------------------------------
+    # PREVIEW TABLE
+    # -------------------------------------------------
     st.markdown("---")
-    st.markdown("### Preview (Not Saved Until OK)")
+    st.subheader("Preview (Not Saved Until OK)")
 
     preview_df = pd.DataFrame([st.session_state.current_record])
     st.dataframe(preview_df, use_container_width=True)

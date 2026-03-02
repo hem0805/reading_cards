@@ -2,21 +2,63 @@ import cv2
 import numpy as np
 
 
+def order_points(pts):
+    rect = np.zeros((4, 2), dtype="float32")
+
+    s = pts.sum(axis=1)
+    rect[0] = pts[np.argmin(s)]
+    rect[2] = pts[np.argmax(s)]
+
+    diff = np.diff(pts, axis=1)
+    rect[1] = pts[np.argmin(diff)]
+    rect[3] = pts[np.argmax(diff)]
+
+    return rect
+
+
 def auto_crop_card(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    edges = cv2.Canny(gray, 50, 150)
-    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blur, 50, 150)
+
+    contours, _ = cv2.findContours(
+        edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
 
     if not contours:
         return img
 
-    cnt = max(contours, key=cv2.contourArea)
-    x, y, w, h = cv2.boundingRect(cnt)
+    largest = max(contours, key=cv2.contourArea)
+    peri = cv2.arcLength(largest, True)
+    approx = cv2.approxPolyDP(largest, 0.02 * peri, True)
 
-    if w * h < 0.25 * img.shape[0] * img.shape[1]:
+    if len(approx) != 4:
         return img
 
-    return img[y:y+h, x:x+w]
+    pts = approx.reshape(4, 2)
+    rect = order_points(pts)
+
+    (tl, tr, br, bl) = rect
+
+    widthA = np.linalg.norm(br - bl)
+    widthB = np.linalg.norm(tr - tl)
+    maxWidth = max(int(widthA), int(widthB))
+
+    heightA = np.linalg.norm(tr - br)
+    heightB = np.linalg.norm(tl - bl)
+    maxHeight = max(int(heightA), int(heightB))
+
+    dst = np.array([
+        [0, 0],
+        [maxWidth - 1, 0],
+        [maxWidth - 1, maxHeight - 1],
+        [0, maxHeight - 1]
+    ], dtype="float32")
+
+    M = cv2.getPerspectiveTransform(rect, dst)
+    warped = cv2.warpPerspective(img, M, (maxWidth, maxHeight))
+
+    return warped
 
 
 def deskew(img):
@@ -37,17 +79,14 @@ def deskew(img):
     )
 
 
-# ✅ SAFE DEFAULT (does NOT break text)
 def preprocess_light(img):
     img = auto_crop_card(img)
     img = deskew(img)
-
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     gray = cv2.bilateralFilter(gray, 9, 75, 75)
     return gray
 
 
-# ⚠️ FALLBACK ONLY
 def preprocess_aggressive(img):
     img = auto_crop_card(img)
     img = deskew(img)
