@@ -7,7 +7,6 @@ nlp = spacy.load("en_core_web_sm")
 # REGEX PATTERNS
 # ---------------------------
 
-# Phone detection (international, OCR tolerant)
 PHONE_PATTERN = re.compile(r'\+?\d[\d\s\-\(\)\.]{6,}\d')
 
 EMAIL = re.compile(r'[\w\.-]+@[\w\.-]+\.\w+')
@@ -39,22 +38,18 @@ def extract_entities(text, lines=None):
         return entities
 
     # ---------------------------
-    # 1️⃣ PHONE (Robust International Logic)
+    # 1️⃣ PHONE
     # ---------------------------
     phone_candidates = PHONE_PATTERN.findall(text)
 
     for candidate in phone_candidates:
-
-        # Remove unwanted characters but keep +
         cleaned = re.sub(r'[^\d+]', '', candidate)
 
-        # Fix multiple + signs (OCR noise)
         if cleaned.count('+') > 1:
             cleaned = cleaned.replace('+', '', cleaned.count('+') - 1)
 
         digits_only = re.sub(r'\D', '', cleaned)
 
-        # Valid international phone numbers are usually 8–15 digits
         if 8 <= len(digits_only) <= 15:
             if cleaned.startswith('+'):
                 entities["Phone"] = '+' + digits_only
@@ -79,23 +74,45 @@ def extract_entities(text, lines=None):
     # ---------------------------
     if lines:
 
-        # Name usually first line
-        if len(lines) >= 1:
-            entities["Name"] = lines[0].title()
+        # Remove empty lines
+        lines = [l.strip() for l in lines if l.strip()]
 
-        # Designation usually second line
-        if len(lines) >= 2:
-            entities["Designation"] = lines[1].title()
+        # ---- NAME (First clean line without digits) ----
+        for line in lines:
+            if not any(char.isdigit() for char in line) and len(line.split()) <= 4:
+                entities["Name"] = line.title()
+                break
 
-        # Address detection
+        # ---- DESIGNATION (Keyword-based) ----
+        designation_keywords = [
+            "director", "manager", "architect", "engineer",
+            "consultant", "principal", "officer", "head",
+            "lead", "analyst", "developer", "executive"
+        ]
+
+        for line in lines:
+            lower = line.lower()
+            if any(word in lower for word in designation_keywords):
+                entities["Designation"] = line.title()
+                break
+
+        # ---- ADDRESS DETECTION (Improved Logic) ----
         address_lines = []
-        address_started = False
+
+        address_keywords = [
+            "street", "st", "road", "rd",
+            "nagar", "layout", "avenue",
+            "floor", "building", "block",
+            "near", "opposite", "india",
+            "tamilnadu", "coimbatore",
+            "pvt", "ltd"
+        ]
 
         for line in lines:
 
             lower = line.lower()
 
-            # Skip lines that contain phone/email/website
+            # Skip phone/email/website lines
             if (
                 entities["Phone"] and entities["Phone"] in line
                 or entities["Email"] and entities["Email"] in line
@@ -103,19 +120,11 @@ def extract_entities(text, lines=None):
             ):
                 continue
 
-            # Strong address indicators
-            if PINCODE.search(line):
-                address_started = True
-
-            if any(word in lower for word in [
-                "street", "st", "road", "rd",
-                "nagar", "layout", "avenue",
-                "floor", "building", "block",
-                "near", "opposite"
-            ]):
-                address_started = True
-
-            if address_started:
+            if (
+                PINCODE.search(line)
+                or any(word in lower for word in address_keywords)
+                or re.search(r'\d{2,}[-/]\d+', line)  # building number like 47-1
+            ):
                 address_lines.append(line)
 
         if address_lines:

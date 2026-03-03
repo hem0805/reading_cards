@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Business Card Scanner</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+<div class="container">
+
+    <!-- HEADER -->
+    <h1 class="title">📇 Business Card Scanner</h1>
+
+    <!-- MODE SWITCH -->
+    <div class="segmented-control">
+        <button id="uploadBtn" class="segment active">Upload</button>
+        <button id="cameraBtn" class="segment">Camera</button>
+    </div>
+
+    <!-- ================= UPLOAD SECTION ================= -->
+    <div id="uploadSection" class="card">
+
+        <label class="upload-zone">
+            <input type="file" id="fileInput" accept="image/*" onchange="handleUpload(event)" hidden>
+            <div class="upload-content">
+                <div class="upload-icon">📂</div>
+                <p class="upload-title">Drag & Drop Business Card</p>
+                <p class="upload-sub">or click to browse</p>
+                <p id="fileName" class="file-name"></p>
+            </div>
+        </label>
+
+    </div>
+
+    <!-- ================= CAMERA SECTION ================= -->
+    <div id="cameraSection" class="card" style="display:none; text-align:center;">
+
+        <video id="video" autoplay playsinline></video>
+        <canvas id="canvas" style="display:none;"></canvas>
+
+        <br><br>
+        <button class="save-btn" onclick="captureImage()">📸 Capture</button>
+
+    </div>
+
+    <!-- ================= SCANNER ================= -->
+    <div id="scannerOverlay" class="scanner-overlay" style="display:none;">
+        <div class="scanner-box">
+            <div class="scan-line"></div>
+            <p>Scanning Business Card...</p>
+        </div>
+    </div>
+
+    <!-- ================= RESULTS ================= -->
+    <div id="resultSection" style="display:none;">
+
+    <!-- CLEAR BUTTON (Only visible after extraction) -->
+    <div class="result-actions">
+        <button id="clearBtn" class="clear-btn" onclick="resetAll()">Clear</button>
+    </div>
+
+    <!-- ORIGINAL IMAGE -->
+    <div class="original-wrapper">
+        <img id="originalImage">
+    </div>
+
+        <!-- ANNOTATED + DETAILS -->
+        <div class="result-grid">
+
+            <!-- LEFT -->
+            <div class="annotated">
+                <img id="annotatedImage">
+            </div>
+
+            <!-- RIGHT -->
+            <div class="details">
+                <h3>Extracted Details</h3>
+
+                <label>Name</label>
+                <input id="name">
+
+                <label>Designation</label>
+                <input id="designation">
+
+                <label>Phone</label>
+                <input id="phone">
+
+                <label>Email</label>
+                <input id="email">
+
+                <label>Website</label>
+                <input id="website">
+
+                <label>Address</label>
+                <textarea id="address"></textarea>
+
+                <button class="save-btn" onclick="saveRecord()">OK - Save Record</button>
+
+                <div id="vcardContainer"></div>
+            </div>
+
+        </div>
+
+        <!-- PREVIEW -->
+        <div class="preview-section">
+            <h3>Preview (Not Saved Until OK)</h3>
+            <table class="preview-table" id="previewTable"></table>
+        </div>
+
+    </div>
+
+</div>
+
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+
+</body>
+</html>

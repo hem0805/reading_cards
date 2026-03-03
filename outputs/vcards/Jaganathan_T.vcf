@@ -2,9 +2,9 @@ BEGIN:VCARD
 VERSION:3.0
 FN:Jaganathan T
 TITLE:Managing Director
-TEL;TYPE=CELL:
+TEL;TYPE=CELL:+12345678908
 EMAIL:jagan@realboxtech.com
 URL:realboxtech.com
-ADR;TYPE=WORK:;;123, 2nd floor west zee St.,, Mumbai-765432
-NOTE:Scanned on 2026-03-02T17:46:22
+ADR;TYPE=WORK:;;+123-456-7890 8, 123, 2nd floor west zee St.,, Mumbai-765432
+NOTE:Scanned on 2026-03-03T15:50:11
 END:VCARD
