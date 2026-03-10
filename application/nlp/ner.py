@@ -1,11 +1,22 @@
 import re
 import spacy
+import os
+import sys
+import en_core_web_sm
 
-nlp = spacy.load("en_core_web_sm")
+# def resource_path(relative_path):
+#     try:
+#         base_path = sys._MEIPASS
+#     except Exception:
+#         base_path = os.path.abspath(".")
 
-# ---------------------------
-# REGEX PATTERNS
-# ---------------------------
+#     return os.path.join(base_path, relative_path)
+
+# model_path = resource_path("en_core_web_sm-3.8.0")
+
+# nlp = spacy.load(model_path)
+
+nlp=en_core_web_sm.load()
 
 PHONE_PATTERN = re.compile(r'\+?\d[\d\s\-\(\)\.]{6,}\d')
 

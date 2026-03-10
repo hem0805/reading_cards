@@ -1,267 +1,306 @@
-let currentImage = null;
+// ===============================
+// MODE SWITCH (UPLOAD / CAMERA)
+// ===============================
+
+// ===============================
+// MODE SWITCH
+// ===============================
+
+function setMode(mode) {
+
+    const uploadSection = document.getElementById("uploadSection");
+    const cameraSection = document.getElementById("cameraSection");
+
+    const uploadBtn = document.getElementById("uploadBtn");
+    const cameraBtn = document.getElementById("cameraBtn");
+
+    uploadBtn.classList.remove("active");
+    cameraBtn.classList.remove("active");
+
+    if (mode === "upload") {
+
+        uploadSection.style.display = "flex";
+        cameraSection.style.display = "none";
+
+        uploadBtn.classList.add("active");
+
+        stopCamera();
+
+    } else {
+
+        uploadSection.style.display = "none";
+        cameraSection.style.display = "flex";
+
+        cameraBtn.classList.add("active");
+
+        startCamera();
+    }
+}
+
+
+// ===============================
+// CAMERA
+// ===============================
+
 let stream = null;
-
-/* ===========================
-   SIMPLE MODE SWITCH
-=========================== */
-
-document.getElementById("uploadBtn").addEventListener("click", () => {
-
-    // Toggle active state
-    document.getElementById("uploadBtn").classList.add("active");
-    document.getElementById("cameraBtn").classList.remove("active");
-
-    document.getElementById("uploadSection").style.display = "block";
-    document.getElementById("cameraSection").style.display = "none";
-
-    stopCamera();
-});
-
-document.getElementById("cameraBtn").addEventListener("click", () => {
-
-    // Toggle active state
-    document.getElementById("cameraBtn").classList.add("active");
-    document.getElementById("uploadBtn").classList.remove("active");
-
-    document.getElementById("uploadSection").style.display = "none";
-    document.getElementById("cameraSection").style.display = "block";
-
-    startCamera();
-});
-
-/* ===========================
-   CAMERA
-=========================== */
 
 function startCamera() {
 
-    if (stream) return;
-
     const video = document.getElementById("video");
 
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert("Camera not supported in this browser.");
-        return;
+    navigator.mediaDevices.getUserMedia({
+    video:{
+        width:{ideal:1280},
+        height:{ideal:720},
+        facingMode:"environment"
     }
+})
+    .then(function(s){
 
-    navigator.mediaDevices.getUserMedia({ video: true })
-        .then(s => {
-            stream = s;
-            video.srcObject = stream;
-        })
-        .catch(err => {
-            console.error(err);
-            alert("Camera permission denied.");
-        });
+        stream = s;
+        video.srcObject = stream;
+
+    })
+    .catch(function(){
+
+        alert("Camera access denied");
+
+    });
 }
 
-function stopCamera() {
-    if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-        stream = null;
-    }
+function stopCamera(){
 
-    const video = document.getElementById("video");
-    if (video) video.srcObject = null;
+    if(!stream) return;
+
+    stream.getTracks().forEach(track => track.stop());
+    stream = null;
 }
 
-function captureImage() {
+
+// ===============================
+// CAPTURE IMAGE
+// ===============================
+
+function captureImage(){
 
     const video = document.getElementById("video");
-    const canvas = document.getElementById("canvas");
 
-    if (!video.srcObject) {
-        alert("Camera not started.");
-        return;
-    }
+    const canvas = document.createElement("canvas");
 
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 
     const ctx = canvas.getContext("2d");
-    ctx.drawImage(video, 0, 0);
 
-    const imageData = canvas.toDataURL("image/png");
+    ctx.drawImage(video,0,0);
 
-    processImage(imageData);
+    canvas.toBlob(function(blob){
+
+        sendImage(blob);
+
+    },"image/jpeg");
 }
 
-/* ===========================
-   UPLOAD
-=========================== */
 
-function handleUpload(event) {
+// ===============================
+// UPLOAD IMAGE
+// ===============================
 
-    if (!event.target.files.length) return;
+function handleUpload(event){
 
     const file = event.target.files[0];
 
-    document.getElementById("fileName").innerText = file.name;
+    if(!file){
+        alert("No file selected");
+        return;
+    }
 
-    const reader = new FileReader();
-
-    reader.onload = function (e) {
-        processImage(e.target.result);
-    };
-
-    reader.readAsDataURL(file);
+    sendImage(file);
 }
 
-/* ===========================
-   PROCESS IMAGE
-=========================== */
 
-function processImage(imageData) {
+// ===============================
+// SEND IMAGE
+// ===============================
 
-    currentImage = imageData;
+function sendImage(file){
 
-    // Show original image
-    document.getElementById("originalImage").src = imageData;
+    const formData = new FormData();
+    formData.append("file",file);
 
-    const overlay = document.getElementById("scannerOverlay");
-    if (overlay) overlay.style.display = "flex";
-
-    fetch("/extract", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: imageData })
+    fetch("/extract",{
+        method:"POST",
+        body:formData
     })
-    .then(res => res.json())
-    .then(data => {
+    .then(res=>res.json())
+    .then(data=>{
 
-        if (overlay) overlay.style.display = "none";
-
-        if (data.error) {
+        if(data.error){
             alert(data.error);
             return;
         }
 
-        document.getElementById("resultSection").style.display = "block";
-        document.getElementById("clearBtn").style.display = "inline-block";
+        document.getElementById("originalImage").src = URL.createObjectURL(file);
 
-        document.getElementById("annotatedImage").src = data.annotated;
+        document.getElementById("annotatedImage").src = data.annotated_image;
 
-        document.getElementById("name").value = data.fields.Name || "";
-        document.getElementById("designation").value = data.fields.Designation || "";
-        document.getElementById("phone").value = data.fields.Phone || "";
-        document.getElementById("email").value = data.fields.Email || "";
-        document.getElementById("website").value = data.fields.Website || "";
-        document.getElementById("address").value = data.fields.Address || "";
+        fillFields(data.fields);
 
-        updatePreview(data.fields);
+        document.getElementById("dashboard").style.display="grid";
+        document.getElementById("records").style.display="block";
+
     })
-    .catch(err => {
-        if (overlay) overlay.style.display = "none";
-        console.error(err);
-        alert("Extraction failed.");
+    .catch(()=>{
+
+        alert("Extraction failed");
+
     });
+
 }
 
-/* ===========================
-   PREVIEW TABLE
-=========================== */
 
-function updatePreview(fields) {
+// ===============================
+// FILL FIELDS
+// ===============================
 
-    const table = document.getElementById("previewTable");
+function fillFields(fields){
 
-    table.innerHTML = `
-        <tr>
-            <th>Name</th>
-            <th>Designation</th>
-            <th>Phone</th>
-            <th>Email</th>
-            <th>Website</th>
-            <th>Address</th>
-        </tr>
-        <tr>
-            <td>${fields.Name || ""}</td>
-            <td>${fields.Designation || ""}</td>
-            <td>${fields.Phone || ""}</td>
-            <td>${fields.Email || ""}</td>
-            <td>${fields.Website || ""}</td>
-            <td>${fields.Address || ""}</td>
-        </tr>
-    `;
+    document.getElementById("name").value = fields.Name || "";
+    document.getElementById("designation").value = fields.Designation || "";
+    document.getElementById("phone").value = fields.Phone || "";
+    document.getElementById("email").value = fields.Email || "";
+    document.getElementById("website").value = fields.Website || "";
+    document.getElementById("address").value = fields.Address || "";
 }
 
-/* ===========================
-   SAVE
-=========================== */
 
-function saveRecord() {
+// ===============================
+// SAVE RECORD
+// ===============================
 
-    const record = {
-        Name: document.getElementById("name").value.trim(),
-        Designation: document.getElementById("designation").value.trim(),
-        Phone: document.getElementById("phone").value.trim(),
-        Email: document.getElementById("email").value.trim().toLowerCase(),
-        Website: document.getElementById("website").value.trim(),
-        Address: document.getElementById("address").value.trim()
+function saveRecord(){
+
+    const data = {
+
+        name:document.getElementById("name").value,
+        designation:document.getElementById("designation").value,
+        phone:document.getElementById("phone").value,
+        email:document.getElementById("email").value,
+        website:document.getElementById("website").value,
+        address:document.getElementById("address").value
     };
 
-    fetch("/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(record)
+    fetch("/save",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify(data)
     })
-    .then(res => res.json())
-    .then(data => {
+    .then(res=>res.json())
+    .then(()=>{
 
-        if (data.success) {
+        appendRow(data);
 
-            document.getElementById("vcardContainer").innerHTML =
-                `<a class="vcard-link" href="${data.vcard}" download>
-                    📱 Download Contact (.vcf)
-                 </a>`;
+    });
+}
 
-            alert("Record saved successfully!");
 
-        } else if (data.duplicate === "email") {
+// ===============================
+// APPEND ROW
+// ===============================
 
-            alert("⚠ A contact with this email already exists.");
+function appendRow(data){
 
-        } else if (data.duplicate === "phone") {
+    const table = document.getElementById("previewTable").querySelector("tbody");
 
-            alert("⚠ A contact with this phone already exists.");
+    const row = document.createElement("tr");
 
-        } else {
+    row.innerHTML = `
+        <td>${data.name}</td>
+        <td>${data.designation}</td>
+        <td>${data.phone}</td>
+        <td>${data.email}</td>
+        <td>${data.website}</td>
+        <td>${data.address}</td>
+    `;
 
-            alert("Save failed.");
+    table.appendChild(row);
+}
+
+
+// ===============================
+// CLEAR FIELDS
+// ===============================
+
+function clearFields(){
+
+    document.getElementById("name").value="";
+    document.getElementById("designation").value="";
+    document.getElementById("phone").value="";
+    document.getElementById("email").value="";
+    document.getElementById("website").value="";
+    document.getElementById("address").value="";
+}
+
+
+// ===============================
+// CLEAR EXTRACTION
+// ===============================
+
+function clearExtraction(){
+
+    clearFields();
+
+    document.getElementById("originalImage").src="";
+    document.getElementById("annotatedImage").src="";
+
+    document.getElementById("dashboard").style.display="none";
+
+    const uploadBtn = document.getElementById("uploadBtn");
+    const cameraBtn = document.getElementById("cameraBtn");
+
+    // reset file input
+    const fileInput = document.getElementById("fileInput");
+    if(fileInput) fileInput.value="";
+
+    if(uploadBtn.classList.contains("active")){
+        document.getElementById("uploadSection").style.display="flex";
+        document.getElementById("cameraSection").style.display="none";
+    }
+    else{
+        document.getElementById("uploadSection").style.display="none";
+        document.getElementById("cameraSection").style.display="flex";
+    }
+}
+
+
+// ===============================
+// EXPORT CSV
+// ===============================
+
+function exportCSV(){
+
+    window.location.href="/export_csv";
+
+}
+
+// ===============================
+// SPACEBAR CAPTURE SUPPORT
+// ===============================
+
+document.addEventListener("keydown", function(event) {
+
+    // check if spacebar pressed
+    if (event.code === "Space") {
+
+        const cameraSection = document.getElementById("cameraSection");
+
+        // only capture if camera section is visible
+        if (cameraSection && cameraSection.style.display !== "none") {
+
+            event.preventDefault(); // stop page scrolling
+            captureImage();
+
         }
-    })
-    .catch(err => {
-        console.error("Save error:", err);
-        alert("Save failed.");
-    });
-}
+    }
 
-/* ===========================
-   CLEAR
-=========================== */
-
-function resetAll() {
-
-    stopCamera();
-
-    document.getElementById("resultSection").style.display = "none";
-    document.getElementById("clearBtn").style.display = "none";
-
-    document.getElementById("originalImage").src = "";
-    document.getElementById("annotatedImage").src = "";
-
-    document.getElementById("fileName").innerText = "";
-    document.getElementById("fileInput").value = "";
-
-    ["name","designation","phone","email","website","address"].forEach(id => {
-        document.getElementById(id).value = "";
-    });
-
-    document.getElementById("previewTable").innerHTML = "";
-    document.getElementById("vcardContainer").innerHTML = "";
-
-    const overlay = document.getElementById("scannerOverlay");
-    if (overlay) overlay.style.display = "none";
-
-    currentImage = null;
-}
+});
