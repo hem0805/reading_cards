@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Extracted Result</title>
+</head>
+<body>
+
+<h2>Extracted Details</h2>
+
+<img src="/{{ image_path }}" width="400"><br><br>
+
+<form method="POST" action="/save">
+    {% for key, value in data.items() %}
+        <label>{{ key }}</label><br>
+        <input type="text" name="{{ key }}" value="{{ value }}"><br><br>
+    {% endfor %}
+    <button type="submit">Save & Download vCard</button>
+</form>
+
+</body>
+</html>

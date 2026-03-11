@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>NovaXtract</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+
+<body>
+
+<div class="app">
+
+    <!-- HEADER -->
+    <div class="header">
+
+        <h1>📇 NovaXtract</h1>
+
+        <div class="segmented-control">
+
+            <button id="uploadBtn" class="segment active" onclick="setMode('upload')">
+                Upload
+            </button>
+
+            <button id="cameraBtn" class="segment camera-btn" onclick="setMode('camera')">
+                Camera
+            </button>
+
+        </div>
+
+    </div>
+
+
+    <!-- UPLOAD AREA -->
+    <div id="uploadSection" class="upload-container">
+
+        <label class="upload-box">
+
+            <input type="file"
+                   id="fileInput"
+                   accept="image/*"
+                   onchange="handleUpload(event)"
+                   hidden>
+
+            <div class="upload-content">
+
+                <p class="upload-sub">📂 click to choose file</p>
+
+            </div>
+
+        </label>
+
+    </div>
+
+
+    <!-- CAMERA AREA -->
+    <div id="cameraSection" class="camera-container" style="display:none;">
+
+        <video id="video" autoplay playsinline></video>
+
+        <button class="capture-btn" onclick="captureImage()">
+            📸 Capture
+        </button>
+        <p class="camera-hint">Press SPACE to capture</p>
+
+    </div>
+
+
+    <!-- DASHBOARD -->
+    <div class="dashboard" id="dashboard" style="display:none;">
+
+        <!-- ORIGINAL CARD -->
+        <div class="panel">
+
+            <h3>Original Card</h3>
+
+            <img id="originalImage">
+
+        </div>
+
+
+        <!-- DETECTED -->
+        <div class="panel">
+
+            <h3>Detected Fields</h3>
+
+            <img id="annotatedImage">
+
+        </div>
+
+
+        <!-- EXTRACTED DETAILS -->
+        <div class="panel details">
+
+            <h3>Extracted Details</h3>
+
+            <label>Name</label>
+            <input id="name">
+
+            <label>Designation</label>
+            <input id="designation">
+
+            <label>Phone</label>
+            <input id="phone">
+
+            <label>Email</label>
+            <input id="email">
+
+            <label>Website</label>
+            <input id="website">
+
+            <label>Address</label>
+            <textarea id="address"></textarea>
+
+            <!-- BUTTON GROUP -->
+            <div class="action-buttons">
+
+                <button type="button" class="save-btn" onclick="saveRecord()">
+                OK - Save Record
+                </button>
+
+                <button type="button" class="clear-btn" onclick="clearExtraction()">
+                Clear
+                </button>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- SAVED RECORDS -->
+    <div class="records" id="records" style="display:none;">
+
+    <div class="records-header">
+
+        <h3>Saved Records</h3>
+
+        <button class="export-btn" onclick="exportCSV()">
+            Export CSV
+        </button>
+
+    </div>
+
+    <table id="previewTable">
+
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Designation</th>
+                <th>Phone</th>
+                <th>Email</th>
+                <th>Website</th>
+                <th>Address</th>
+            </tr>
+        </thead>
+
+        <tbody></tbody>
+
+    </table>
+
+</div>
+
+</div>
+
+
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+
+<div id="loader" class="loader-overlay" style="display:none;">
+    <div class="spinner"></div>
+    <p>Processing card...</p>
+</div>
+
+
+</body>
+</html>
